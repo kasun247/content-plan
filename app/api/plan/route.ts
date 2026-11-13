@@ -1,22 +1,26 @@
 import { NextResponse } from "next/server";
 import { cleanPlan } from "@/lib/plan";
-import { aiEnabled, authorised, cloudEnabled, passcodeSet, readPlan, writePlan } from "@/lib/server";
+import { sessionEmail } from "@/lib/auth";
+import { aiEnabled, authMethod, authorised, cloudEnabled, readPlan, writePlan } from "@/lib/server";
 
 export const dynamic = "force-dynamic";
 
 /**
  * GET → which mode the app runs in, plus the saved plan when cloud saving is on.
  *   { mode: "local", ai }                      no passcode/storage: browser storage
- *   { mode: "locked" }  (401)                  passcode set, header missing or wrong
+ *   { mode: "locked", auth }  (401)            not signed in (auth: "google" | "passcode")
  *   { mode: "cloud", ai, plan: Plan | null }   signed in
+ * Signed-in responses also carry `auth` and, for Google, the signed-in `email`.
  */
 export async function GET(req: Request) {
-  if (!passcodeSet()) return NextResponse.json({ mode: "local", ai: false });
-  if (!authorised(req)) return NextResponse.json({ mode: "locked" }, { status: 401 });
-  if (!cloudEnabled()) return NextResponse.json({ mode: "local", ai: aiEnabled() });
+  const auth = authMethod();
+  if (!auth) return NextResponse.json({ mode: "local", ai: false, auth });
+  if (!authorised(req)) return NextResponse.json({ mode: "locked", auth }, { status: 401 });
+  const who = { auth, email: auth === "google" ? sessionEmail(req) : null };
+  if (!cloudEnabled()) return NextResponse.json({ mode: "local", ai: aiEnabled(), ...who });
   try {
     const plan = cleanPlan(await readPlan());
-    return NextResponse.json({ mode: "cloud", ai: aiEnabled(), plan });
+    return NextResponse.json({ mode: "cloud", ai: aiEnabled(), plan, ...who });
   } catch (e) {
     return NextResponse.json({ error: (e as Error).message }, { status: 502 });
   }
@@ -24,7 +28,7 @@ export async function GET(req: Request) {
 
 export async function PUT(req: Request) {
   if (!cloudEnabled()) return NextResponse.json({ error: "Cloud saving is not set up" }, { status: 400 });
-  if (!authorised(req)) return NextResponse.json({ error: "Wrong passcode" }, { status: 401 });
+  if (!authorised(req)) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
   const raw = await req.text();
   if (raw.length > 900_000) return NextResponse.json({ error: "Plan is too large" }, { status: 413 });
   let parsed: unknown;

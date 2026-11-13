@@ -8,7 +8,7 @@ type Body = { text?: string; todayLong?: string; todayIso?: string; existing?: s
 
 export async function POST(req: Request) {
   if (!aiEnabled()) return NextResponse.json({ error: "not_configured" }, { status: 501 });
-  if (!authorised(req)) return NextResponse.json({ error: "Wrong passcode" }, { status: 401 });
+  if (!authorised(req)) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
 
   let body: Body;
   try {

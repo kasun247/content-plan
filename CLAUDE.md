@@ -23,7 +23,7 @@ Kasun is in Sri Lanka (UTC+5:30). Dates in the plan are local dates (`YYYY-MM-DD
 
 - `components/ContentPlan.tsx` is a single client component. It renders nothing date-dependent until mounted (avoids hydration mismatch from server vs. browser time zones).
 - `GET /api/plan` returns the mode: `local` (browser storage), `locked` (passcode needed) or `cloud` (with the saved plan). The whole plan `{ items, notes }` is one JSON value in Redis under `content-plan:v1`; the client PUTs it back, debounced 400 ms. Single-user, last write wins.
-- Cloud saving and `/api/organise` only work when `APP_PASSCODE` is set; requests send it as `x-plan-passcode`.
+- Cloud saving and `/api/organise` only work when the app is locked (`authMethod()` in `lib/server.ts`). Google sign-in wins when `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `SESSION_SECRET` and `ALLOWED_EMAILS` are set: `/api/auth/google` → Google → `/api/auth/callback` sets an HttpOnly HMAC-signed `cp_session` cookie (`lib/auth.ts`, no SDK). Otherwise `APP_PASSCODE`, sent as `x-plan-passcode`.
 - `/api/organise` calls the Anthropic Messages API with `fetch` (no SDK). Model from `ANTHROPIC_MODEL`, default `claude-sonnet-5-5`. Without a key, the client falls back to one idea per line (`fallbackOrganise`).
 - `cleanDraft` / `cleanPlan` in `lib/plan.ts` validate everything from the AI and from storage. Keep channels/types/statuses in sync there.
 

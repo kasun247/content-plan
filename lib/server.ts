@@ -1,3 +1,4 @@
+import { googleEnabled, sameOrigin, sessionEmail } from "./auth";
 import { CHANNELS, STATUSES, TYPES } from "./plan";
 
 const KEY = "content-plan:v1";
@@ -9,12 +10,16 @@ function redisEnv() {
 }
 
 export const passcodeSet = () => Boolean(process.env.APP_PASSCODE);
-/** Cloud saving needs both a store and a passcode, so a public URL can't be edited by anyone. */
-export const cloudEnabled = () => passcodeSet() && redisEnv() !== null;
-export const aiEnabled = () => passcodeSet() && Boolean(process.env.ANTHROPIC_API_KEY);
 
-/** Constant-time-ish comparison of the passcode header. */
-export function authorised(req: Request): boolean {
+/** How the app is locked: Google sign-in when configured, else the passcode, else not at all (browser-only mode). */
+export const authMethod = (): "google" | "passcode" | null =>
+  googleEnabled() ? "google" : passcodeSet() ? "passcode" : null;
+
+/** Cloud saving needs both a store and a lock, so a public URL can't be edited by anyone. */
+export const cloudEnabled = () => authMethod() !== null && redisEnv() !== null;
+export const aiEnabled = () => authMethod() !== null && Boolean(process.env.ANTHROPIC_API_KEY);
+
+function passcodeOk(req: Request): boolean {
   const expected = process.env.APP_PASSCODE;
   if (!expected) return false;
   const got = req.headers.get("x-plan-passcode") ?? "";
@@ -22,6 +27,14 @@ export function authorised(req: Request): boolean {
   let diff = 0;
   for (let i = 0; i < got.length; i++) diff |= got.charCodeAt(i) ^ expected.charCodeAt(i);
   return diff === 0;
+}
+
+/** True when the request is signed in (Google session cookie) or carries the right passcode. */
+export function authorised(req: Request): boolean {
+  const method = authMethod();
+  if (method === "google") return sessionEmail(req) !== null && (req.method === "GET" || sameOrigin(req));
+  if (method === "passcode") return passcodeOk(req);
+  return false;
 }
 
 export async function readPlan(): Promise<unknown | null> {
