@@ -1,0 +1,65 @@
+{
+  "items": [
+    {
+      "id": "imwfdfa9mq51gy",
+      "title": "Share 4 videos",
+      "date": "2026-11-17",
+      "channel": "Other",
+      "type": "Video",
+      "status": "Planned",
+      "product": "",
+      "notes": "Will send on Tue, Nov 17, 2026 at 8:00 AM. Channel not specified in the note; the 4 videos are to be shared.",
+      "source": "note",
+      "noteId": "nmwfdf4qmge4s",
+      "createdAt": "2026-11-13T19:29:45.658Z"
+    },
+    {
+      "id": "starter-axia-launch",
+      "title": "Axia launch post",
+      "date": "2026-11-11",
+      "channel": "X",
+      "type": "Launch",
+      "status": "Published",
+      "product": "Axia",
+      "notes": "Launched 10:00 PM Sri Lanka time.",
+      "source": "starter",
+      "noteId": null,
+      "createdAt": "2026-11-13T19:30:00.000Z"
+    },
+    {
+      "id": "starter-first-commission",
+      "title": "Build in Public post: my first Framer referral commission",
+      "date": null,
+      "channel": "X",
+      "type": "Post",
+      "status": "Idea",
+      "product": "Coming Soon",
+      "notes": "",
+      "source": "starter",
+      "noteId": null,
+      "createdAt": "2026-11-13T19:30:01.000Z"
+    },
+    {
+      "id": "starter-next-teaser",
+      "title": "Teaser for the next template",
+      "date": null,
+      "channel": "X",
+      "type": "Teaser",
+      "status": "Idea",
+      "product": "",
+      "notes": "",
+      "source": "starter",
+      "noteId": null,
+      "createdAt": "2026-11-13T19:30:02.000Z"
+    }
+  ],
+  "notes": [
+    {
+      "id": "nmwfdf4qmge4s",
+      "text": "4 videos will share on - Will send on Tue, Nov 17, 2026 at 8:00 AM",
+      "createdAt": "2026-11-13T19:29:38.491Z",
+      "organised": true,
+      "itemCount": 1
+    }
+  ]
+}
