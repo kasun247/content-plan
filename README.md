@@ -62,4 +62,6 @@ On first load in cloud mode, the plan starts from `data/seed.json` (your plan as
 - `app/api/organise/route.ts`: `POST` a note (and images), get back plan items
 - `app/api/image/[id]/route.ts`: `PUT`/`GET` one image
 - `components/images.tsx`: resizing, storing and showing images
+- `lib/brand.tsx`: name, description, site URL and the app mark (drawn with `next/og`)
+- `app/icon.tsx`, `app/apple-icon.tsx`, `app/opengraph-image.tsx`, `app/manifest.ts`, `app/robots.ts`: favicon, home-screen icon, link preview, web app manifest, robots.txt (everything is `noindex`: it's a private plan)
 - `data/seed.json`: starting data
