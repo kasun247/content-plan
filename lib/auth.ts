@@ -3,7 +3,7 @@ import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 /**
  * Google sign-in (OAuth 2.0 authorization code flow, no SDK).
  *
- * On when GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, SESSION_SECRET and ALLOWED_EMAILS are all set.
+ * On when GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, SESSION_SECRET (32+ characters) and ALLOWED_EMAILS are all set.
  * After sign-in the server sets an HttpOnly cookie holding `{ email, exp }` signed with SESSION_SECRET.
  * Only addresses in ALLOWED_EMAILS (comma-separated) can sign in.
  */
@@ -12,13 +12,25 @@ export const SESSION_COOKIE = "cp_session";
 export const STATE_COOKIE = "cp_oauth_state";
 const SESSION_DAYS = 30;
 
-export const googleEnabled = () =>
-  Boolean(
-    process.env.GOOGLE_CLIENT_ID &&
-      process.env.GOOGLE_CLIENT_SECRET &&
-      process.env.SESSION_SECRET &&
-      allowedEmails().length,
+/** The cookie signing key must be long enough that it can't be guessed offline from a stolen cookie. */
+export const MIN_SECRET_LENGTH = 32;
+let warned = false;
+
+export const googleEnabled = () => {
+  const on = Boolean(
+    process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET && process.env.SESSION_SECRET && allowedEmails().length,
   );
+  if (on && (process.env.SESSION_SECRET as string).length < MIN_SECRET_LENGTH) {
+    if (!warned) {
+      warned = true;
+      console.error(
+        `Google sign-in is off: SESSION_SECRET must be at least ${MIN_SECRET_LENGTH} characters (try: openssl rand -base64 32).`,
+      );
+    }
+    return false;
+  }
+  return on;
+};
 
 export function allowedEmails(): string[] {
   return (process.env.ALLOWED_EMAILS ?? "")

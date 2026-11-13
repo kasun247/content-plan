@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { cleanDraft } from "@/lib/plan";
 import { MAX_IMAGES } from "@/lib/plan";
-import { aiEnabled, askClaude, authorised, buildPrompt, type PromptImage } from "@/lib/server";
+import { aiEnabled, askClaude, authorise, buildPrompt, type PromptImage } from "@/lib/server";
 
 export const dynamic = "force-dynamic";
 
@@ -25,7 +25,8 @@ function cleanPromptImages(v: unknown): PromptImage[] {
 
 export async function POST(req: Request) {
   if (!aiEnabled()) return NextResponse.json({ error: "not_configured" }, { status: 501 });
-  if (!authorised(req)) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
+  const check = await authorise(req);
+  if (!check.ok) return NextResponse.json({ error: check.error }, { status: check.status });
 
   let body: Body;
   try {

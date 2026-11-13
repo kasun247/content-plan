@@ -11,8 +11,8 @@ export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   themeColor: [
-    { media: "(prefers-color-scheme: light)", color: "#f4f5f9" },
-    { media: "(prefers-color-scheme: dark)", color: "#0f1116" },
+    { media: "(prefers-color-scheme: light)", color: "#161616" },
+    { media: "(prefers-color-scheme: dark)", color: "#161616" },
   ],
 };
 
@@ -24,7 +24,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="" />
         <link
           rel="stylesheet"
-          href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap"
+          href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;600&family=IBM+Plex+Mono:wght@400&display=swap"
         />
       </head>
       <body>{children}</body>

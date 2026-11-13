@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { cleanPlan } from "@/lib/plan";
 import { sessionEmail } from "@/lib/auth";
-import { aiEnabled, authMethod, authorised, cloudEnabled, readPlan, writePlan } from "@/lib/server";
+import { aiEnabled, authMethod, authorise, cloudEnabled, readPlan, writePlan } from "@/lib/server";
 
 export const dynamic = "force-dynamic";
 
@@ -15,7 +15,8 @@ export const dynamic = "force-dynamic";
 export async function GET(req: Request) {
   const auth = authMethod();
   if (!auth) return NextResponse.json({ mode: "local", ai: false, auth });
-  if (!authorised(req)) return NextResponse.json({ mode: "locked", auth }, { status: 401 });
+  const check = await authorise(req);
+  if (!check.ok) return NextResponse.json({ mode: "locked", auth, error: check.error }, { status: check.status });
   const who = { auth, email: auth === "google" ? sessionEmail(req) : null };
   if (!cloudEnabled()) return NextResponse.json({ mode: "local", ai: aiEnabled(), ...who });
   try {
@@ -28,7 +29,8 @@ export async function GET(req: Request) {
 
 export async function PUT(req: Request) {
   if (!cloudEnabled()) return NextResponse.json({ error: "Cloud saving is not set up" }, { status: 400 });
-  if (!authorised(req)) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
+  const check = await authorise(req);
+  if (!check.ok) return NextResponse.json({ error: check.error }, { status: check.status });
   const raw = await req.text();
   if (raw.length > 900_000) return NextResponse.json({ error: "Plan is too large" }, { status: 413 });
   let parsed: unknown;

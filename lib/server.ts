@@ -29,12 +29,64 @@ function passcodeOk(req: Request): boolean {
   return diff === 0;
 }
 
-/** True when the request is signed in (Google session cookie) or carries the right passcode. */
-export function authorised(req: Request): boolean {
+/* ---------- wrong-passcode lockout ---------- */
+
+export const MAX_FAILS = 10;
+const FAIL_WINDOW_S = 15 * 60;
+const memFails = new Map<string, { n: number; until: number }>(); // fallback when Redis isn't set up
+
+function clientIp(req: Request): string {
+  return (req.headers.get("x-real-ip") || req.headers.get("x-forwarded-for")?.split(",")[0] || "unknown").trim().slice(0, 64);
+}
+
+async function redisCmd(path: string): Promise<unknown> {
+  const env = redisEnv();
+  if (!env) return null;
+  const res = await fetch(`${env.url}/${path}`, { headers: { Authorization: `Bearer ${env.token}` }, cache: "no-store" });
+  if (!res.ok) throw new Error(`Storage error (${res.status})`);
+  return ((await res.json()) as { result: unknown }).result;
+}
+
+async function failCount(ip: string): Promise<number> {
+  if (redisEnv()) return Number(await redisCmd(`get/${encodeURIComponent(`content-plan:fail:${ip}`)}`)) || 0;
+  const m = memFails.get(ip);
+  return m && m.until > Date.now() ? m.n : 0;
+}
+
+async function recordFail(ip: string): Promise<void> {
+  if (redisEnv()) {
+    const key = encodeURIComponent(`content-plan:fail:${ip}`);
+    const n = Number(await redisCmd(`incr/${key}`));
+    if (n === 1) await redisCmd(`expire/${key}/${FAIL_WINDOW_S}`);
+    return;
+  }
+  const m = memFails.get(ip);
+  memFails.set(ip, m && m.until > Date.now() ? { n: m.n + 1, until: m.until } : { n: 1, until: Date.now() + FAIL_WINDOW_S * 1000 });
+}
+
+export type AuthResult = { ok: true } | { ok: false; status: 401 | 429; error: string };
+
+/**
+ * Signed in (Google session cookie) or the right passcode. After MAX_FAILS wrong passcodes from one IP
+ * in 15 minutes, that IP gets 429 until the window passes, even with the right passcode.
+ */
+export async function authorise(req: Request): Promise<AuthResult> {
   const method = authMethod();
-  if (method === "google") return sessionEmail(req) !== null && (req.method === "GET" || sameOrigin(req));
-  if (method === "passcode") return passcodeOk(req);
-  return false;
+  const no: AuthResult = { ok: false, status: 401, error: "Not signed in" };
+  if (method === "google") return sessionEmail(req) !== null && (req.method === "GET" || sameOrigin(req)) ? { ok: true } : no;
+  if (method !== "passcode") return no;
+
+  const ip = clientIp(req);
+  const limited: AuthResult = { ok: false, status: 429, error: "Too many wrong passcodes. Try again in 15 minutes." };
+  try {
+    if ((await failCount(ip)) >= MAX_FAILS) return limited;
+    if (passcodeOk(req)) return { ok: true };
+    if (req.headers.get("x-plan-passcode")) await recordFail(ip);
+  } catch (e) {
+    console.error("passcode check failed", e);
+    return { ok: false, status: 401, error: "Couldn't check the passcode. Try again." };
+  }
+  return no;
 }
 
 export async function readPlan(): Promise<unknown | null> {

@@ -48,6 +48,7 @@ const AUTH_ERRORS: Record<string, string> = {
   expired: "Sign-in took too long. Try again.",
   failed: "Google sign-in didn't work. Try again in a minute.",
   not_configured: "Google sign-in isn't set up on the server yet.",
+  weak_secret: "Google sign-in is off because SESSION_SECRET is shorter than 32 characters.",
 };
 
 const seedPlan = (): Plan => cleanPlan(seed) ?? { items: [], notes: [] };
@@ -107,7 +108,8 @@ export default function ContentPlan() {
       setAuth((body.auth as Auth) ?? null);
       setEmail(typeof body.email === "string" ? body.email : null);
       if (body.mode === "locked") {
-        if (code && body.auth === "passcode") setStatus({ msg: "That passcode didn't work. Try again.", kind: "err" });
+        if (res.status === 429) setStatus({ msg: body.error || "Too many wrong passcodes. Try again later.", kind: "err" });
+        else if (code && body.auth === "passcode") setStatus({ msg: "That passcode didn't work. Try again.", kind: "err" });
         safeSet(PASS_KEY, null);
         setMode("locked");
         return;
@@ -386,6 +388,19 @@ export default function ContentPlan() {
 
   return (
     <ImageCtx.Provider value={imageStore}>
+    <header className="shell">
+      <span className="shell-name">
+        <b>Content</b> Plan
+      </span>
+      {ready && email && (
+        <span className="shell-user">
+          <span className="shell-email">{email}</span>
+          <button type="button" className="shell-action" onClick={signOut}>
+            Sign out
+          </button>
+        </span>
+      )}
+    </header>
     <div className="wrap">
       <header className="top">
         <div>
@@ -402,14 +417,6 @@ export default function ContentPlan() {
             <div className="mode">
               {mode === "cloud" ? "Saved to the cloud" : "Saved in this browser"}
               {ai ? " · AI organising on" : ""}
-            </div>
-          )}
-          {ready && email && (
-            <div className="mode">
-              {email} ·{" "}
-              <button type="button" className="linkish" onClick={signOut}>
-                Sign out
-              </button>
             </div>
           )}
         </div>
@@ -1018,17 +1025,13 @@ function EditDialog({
             >
               {armed ? "Confirm delete" : "Delete"}
             </button>
-          ) : (
-            <span />
-          )}
-          <div>
-            <button type="button" className="btn" onClick={() => ref.current?.close()}>
-              Cancel
-            </button>
-            <button type="submit" className="btn primary" disabled={saving}>
-              {saving ? "Saving…" : "Save"}
-            </button>
-          </div>
+          ) : null}
+          <button type="button" className="btn secondary" onClick={() => ref.current?.close()}>
+            Cancel
+          </button>
+          <button type="submit" className="btn primary" disabled={saving}>
+            {saving ? "Saving…" : "Save"}
+          </button>
         </div>
       </form>
     </dialog>

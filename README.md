@@ -35,7 +35,7 @@ Set `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `ALLOWED_EMAILS` and `SESSION_SE
 
 1. [console.cloud.google.com](https://console.cloud.google.com) → create a project → **APIs & Services → OAuth consent screen**: External, app name, your email. Add yourself as a test user (or publish the app).
 2. **Credentials → Create credentials → OAuth client ID → Web application**. Authorised redirect URIs: `https://<your-vercel-domain>/api/auth/callback` and, for local dev, `http://localhost:3000/api/auth/callback`.
-3. Copy the client ID and secret into Vercel's env vars, add `ALLOWED_EMAILS` and a `SESSION_SECRET` (`openssl rand -base64 32`), then redeploy.
+3. Copy the client ID and secret into Vercel's env vars, add `ALLOWED_EMAILS` and a `SESSION_SECRET` of at least 32 characters (`openssl rand -base64 32`; shorter ones keep Google sign-in switched off), then redeploy.
 
 When Google sign-in is set up, `APP_PASSCODE` is ignored.
 
