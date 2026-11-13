@@ -42,6 +42,7 @@ export type Item = {
   notes: string;
   source: "note" | "manual" | "starter";
   noteId: string | null;
+  images: string[]; // image ids, see /api/image/[id]
   createdAt: string; // ISO
 };
 
@@ -51,6 +52,7 @@ export type Note = {
   createdAt: string;
   organised: boolean;
   itemCount: number;
+  images: string[];
 };
 
 export type Plan = { items: Item[]; notes: Note[] };
@@ -106,6 +108,12 @@ export const fmt = (d: Date, o: Intl.DateTimeFormatOptions) => d.toLocaleDateStr
 export const newId = (prefix = "i") =>
   prefix + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 
+/** Image ids look like "img" + base36; at most this many per note or item. */
+export const MAX_IMAGES = 4;
+export const isImageId = (v: unknown): v is string => typeof v === "string" && /^img[a-z0-9]{6,40}$/.test(v);
+export const cleanImages = (v: unknown): string[] =>
+  Array.isArray(v) ? [...new Set(v.filter(isImageId))].slice(0, MAX_IMAGES * 2) : [];
+
 const isDate = (v: unknown): v is string => typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v);
 
 /** Validate one item coming from the AI or from storage. */
@@ -145,6 +153,7 @@ export function cleanPlan(x: unknown): Plan | null {
       id: typeof r.id === "string" && r.id ? r.id.slice(0, 64) : newId(),
       source: r.source === "note" || r.source === "starter" ? r.source : "manual",
       noteId: typeof r.noteId === "string" ? r.noteId.slice(0, 64) : null,
+      images: cleanImages(r.images),
       createdAt: typeof r.createdAt === "string" ? r.createdAt : new Date().toISOString(),
     });
   }
@@ -153,13 +162,15 @@ export function cleanPlan(x: unknown): Plan | null {
     if (!raw || typeof raw !== "object") continue;
     const r = raw as Record<string, unknown>;
     const text = String(r.text ?? "").slice(0, 5000);
-    if (!text) continue;
+    const images = cleanImages(r.images);
+    if (!text && !images.length) continue;
     notes.push({
       id: typeof r.id === "string" && r.id ? r.id.slice(0, 64) : newId("n"),
       text,
       createdAt: typeof r.createdAt === "string" ? r.createdAt : new Date().toISOString(),
       organised: Boolean(r.organised),
       itemCount: Number(r.itemCount) || 0,
+      images,
     });
   }
   return { items: items.slice(0, 2000), notes: notes.slice(0, 500) };

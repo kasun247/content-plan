@@ -25,6 +25,10 @@ The app picks its mode from environment variables, so it works out of the box an
 
 Cloud saving and AI only switch on once the app is locked, so nobody can edit your plan or spend your API credit from the public URL.
 
+### Images
+
+Paste, drop or pick up to 4 images per note (screenshots, post graphics). They're resized in the browser, kept with the note and every item it creates, and shown on the timeline, board and notes. With AI organising on, Claude also reads them to make the plan items. In cloud mode images are stored in the same Upstash database as the plan, so there's nothing extra to set up.
+
 ### Google sign-in
 
 Set `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `ALLOWED_EMAILS` and `SESSION_SECRET` and the page shows "Sign in with Google" instead of the passcode box. Only the emails in `ALLOWED_EMAILS` get in; a signed cookie keeps you signed in for 30 days.
@@ -55,5 +59,7 @@ On first load in cloud mode, the plan starts from `data/seed.json` (your plan as
 - `app/api/auth/*`: `google` (start sign-in), `callback`, `logout`
 - `lib/server.ts`: lock check, Upstash REST storage, Anthropic API call and prompt
 - `app/api/plan/route.ts`: `GET`/`PUT` the plan
-- `app/api/organise/route.ts`: `POST` a note, get back plan items
+- `app/api/organise/route.ts`: `POST` a note (and images), get back plan items
+- `app/api/image/[id]/route.ts`: `PUT`/`GET` one image
+- `components/images.tsx`: resizing, storing and showing images
 - `data/seed.json`: starting data

@@ -61,7 +61,37 @@ export async function writePlan(plan: unknown): Promise<void> {
   if (!res.ok) throw new Error(`Storage write failed (${res.status})`);
 }
 
-export function buildPrompt(text: string, todayLong: string, todayIso: string, existing: string): string {
+/* ---------- images: one Redis key per image, value "<media type>;<base64>" ---------- */
+
+const imgKey = (id: string) => `content-plan:img:${id}`;
+
+export async function readImage(id: string): Promise<{ type: string; bytes: Buffer } | null> {
+  const env = redisEnv();
+  if (!env) return null;
+  const res = await fetch(`${env.url}/get/${encodeURIComponent(imgKey(id))}`, {
+    headers: { Authorization: `Bearer ${env.token}` },
+    cache: "no-store",
+  });
+  if (!res.ok) throw new Error(`Storage read failed (${res.status})`);
+  const { result } = (await res.json()) as { result: string | null };
+  if (!result) return null;
+  const i = result.indexOf(";");
+  return { type: result.slice(0, i), bytes: Buffer.from(result.slice(i + 1), "base64") };
+}
+
+export async function writeImage(id: string, type: string, bytes: Buffer): Promise<void> {
+  const env = redisEnv();
+  if (!env) throw new Error("Storage is not configured");
+  const res = await fetch(`${env.url}/set/${encodeURIComponent(imgKey(id))}`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${env.token}` },
+    body: `${type};${bytes.toString("base64")}`,
+    cache: "no-store",
+  });
+  if (!res.ok) throw new Error(`Storage write failed (${res.status})`);
+}
+
+export function buildPrompt(text: string, todayLong: string, todayIso: string, existing: string, imageCount = 0): string {
   return `You organise rough notes into a content plan for Kasun, a designer in Sri Lanka who publishes free Framer templates (Coming Soon, Axia) and components on the Framer Marketplace and promotes them on X (including a Build in Public community) and Contra.
 
 Today is ${todayLong} (${todayIso}). Weeks start on Monday.
@@ -71,9 +101,13 @@ ${existing || "(none yet)"}
 
 NOTE:
 """
-${text}
+${text || "(no text, only images)"}
 """
-
+${
+  imageCount
+    ? `\nThe note comes with ${imageCount} attached image${imageCount > 1 ? "s" : ""} (above). They may be screenshots of drafts, lists, chats or calendars that contain the content ideas and dates, or the graphic a post will use. Read them and use what they show together with the text. Quote short text from them in "notes" when it helps (e.g. a tweet draft).\n`
+    : ""
+}
 Turn the note into content plan items. Rules:
 - One item per distinct piece of content. If one piece goes to several channels, make one item per channel.
 - Only include things the note actually asks for. Do not invent extra content.
@@ -88,7 +122,9 @@ Turn the note into content plan items. Rules:
 Return only JSON, no prose: {"items":[{"title":"","date":null,"channel":"","type":"","status":"","product":"","notes":""}]}`;
 }
 
-export async function askClaude(prompt: string): Promise<string> {
+export type PromptImage = { media_type: "image/jpeg" | "image/png" | "image/webp" | "image/gif"; data: string };
+
+export async function askClaude(prompt: string, images: PromptImage[] = []): Promise<string> {
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: {
@@ -99,7 +135,15 @@ export async function askClaude(prompt: string): Promise<string> {
     body: JSON.stringify({
       model: process.env.ANTHROPIC_MODEL || "claude-sonnet-5-5",
       max_tokens: 2000,
-      messages: [{ role: "user", content: prompt }],
+      messages: [
+        {
+          role: "user",
+          content: [
+            ...images.map((img) => ({ type: "image", source: { type: "base64", ...img } })),
+            { type: "text", text: prompt },
+          ],
+        },
+      ],
     }),
     cache: "no-store",
   });

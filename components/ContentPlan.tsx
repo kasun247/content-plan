@@ -1,10 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import seed from "@/data/seed.json";
 import {
   CHANNELS,
   CHANNEL_COLOR,
+  MAX_IMAGES,
   STATUSES,
   STATUS_CLASS,
   STATUS_COLOR,
@@ -23,6 +24,17 @@ import {
   type Plan,
   type Status,
 } from "@/lib/plan";
+import {
+  ImageCtx,
+  PendingThumb,
+  Thumb,
+  base64Of,
+  imageFiles,
+  prepareImage,
+  storeImages,
+  type Attachment,
+  type ImageStore,
+} from "./images";
 
 type Mode = "loading" | "local" | "cloud" | "locked";
 type View = "timeline" | "board" | "notes";
@@ -71,10 +83,20 @@ export default function ContentPlan() {
   const [banner, setBanner] = useState("");
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState("");
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const [dragging, setDragging] = useState(false);
+  const fileInput = useRef<HTMLInputElement>(null);
   const [fresh, setFresh] = useState<Set<string>>(new Set());
   const [editing, setEditing] = useState<Item | "new" | null>(null);
   const passcode = useRef<string>("");
   const dirty = useRef(false);
+  const imageStore = useMemo<ImageStore>(
+    () => ({
+      mode: mode === "cloud" ? "cloud" : "local",
+      headers: (): Record<string, string> => (passcode.current ? { "x-plan-passcode": passcode.current } : {}),
+    }),
+    [mode],
+  );
 
   /* ---------- load ---------- */
   const load = useCallback(async (code: string) => {
@@ -211,11 +233,20 @@ export default function ContentPlan() {
   async function organise(e: React.FormEvent) {
     e.preventDefault();
     const text = note.trim();
-    if (!text || !today) return;
+    const pics = attachments;
+    if ((!text && !pics.length) || !today) return;
     setBusy(true);
-    setStatus({ msg: "Reading your note and placing it on the timeline…" });
+    setStatus({ msg: pics.length ? "Saving images and reading your note…" : "Reading your note and placing it on the timeline…" });
     const noteId = newId("n");
     const createdAt = new Date().toISOString();
+    try {
+      await storeImages(imageStore, pics);
+    } catch (err) {
+      setBusy(false);
+      setStatus({ msg: (err as Error).message, kind: "err" });
+      return;
+    }
+    const imageIds = pics.map((a) => a.id);
 
     let drafts: DraftItem[] | null = null;
     let why = "";
@@ -232,6 +263,7 @@ export default function ContentPlan() {
           body: JSON.stringify({
             text,
             existing,
+            images: pics.map((a) => ({ media_type: a.type, data: base64Of(a.dataUrl) })),
             todayIso: ymd(today),
             todayLong: fmt(new Date(), { weekday: "long", day: "numeric", month: "long", year: "numeric" }),
           }),
@@ -247,20 +279,24 @@ export default function ContentPlan() {
     }
     const usedFallback = !drafts;
     if (!drafts) drafts = fallbackOrganise(text);
+    if (!drafts.length && pics.length)
+      drafts = [{ title: "Image idea", date: null, channel: "Other", type: "Post", status: "Idea", product: "", notes: "" }];
 
     const newItems: Item[] = drafts.map((d) => ({
       ...d,
       id: newId(),
       source: "note",
       noteId,
+      images: imageIds,
       createdAt: new Date().toISOString(),
     }));
     change((p) => ({
       items: [...p.items, ...newItems],
-      notes: [{ id: noteId, text, createdAt, organised: !usedFallback, itemCount: newItems.length }, ...p.notes],
+      notes: [{ id: noteId, text, createdAt, organised: !usedFallback, itemCount: newItems.length, images: imageIds }, ...p.notes],
     }));
     flash(newItems.map((i) => i.id));
     setNote("");
+    setAttachments([]);
     setBusy(false);
     if (usedFallback) {
       setStatus({
@@ -275,6 +311,24 @@ export default function ContentPlan() {
       });
     }
     if (view === "notes") window.location.hash = "timeline";
+  }
+
+  async function addFiles(files: File[]) {
+    if (!files.length) return;
+    const room = MAX_IMAGES - attachments.length;
+    if (room <= 0) {
+      setStatus({ msg: `Up to ${MAX_IMAGES} images per note.`, kind: "err" });
+      return;
+    }
+    try {
+      const ready = await Promise.all(files.slice(0, room).map(prepareImage));
+      setAttachments((a) => [...a, ...ready].slice(0, MAX_IMAGES));
+      setStatus(
+        files.length > room ? { msg: `Up to ${MAX_IMAGES} images per note, so only the first ${room} were added.`, kind: "err" } : { msg: "" },
+      );
+    } catch (err) {
+      setStatus({ msg: (err as Error).message, kind: "err" });
+    }
   }
 
   async function signOut() {
@@ -331,6 +385,7 @@ export default function ContentPlan() {
   const ready = mode !== "loading" && today;
 
   return (
+    <ImageCtx.Provider value={imageStore}>
     <div className="wrap">
       <header className="top">
         <div>
@@ -362,27 +417,84 @@ export default function ContentPlan() {
 
       {banner && <div className="banner">{banner}</div>}
 
-      <form className="composer" onSubmit={organise}>
+      <form
+        className={`composer${dragging ? " dragging" : ""}`}
+        onSubmit={organise}
+        onDragOver={(e) => {
+          if (Array.from(e.dataTransfer.types).includes("Files")) {
+            e.preventDefault();
+            setDragging(true);
+          }
+        }}
+        onDragLeave={(e) => {
+          if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragging(false);
+        }}
+        onDrop={(e) => {
+          e.preventDefault();
+          setDragging(false);
+          addFiles(imageFiles(e.dataTransfer.files));
+        }}
+      >
         <label htmlFor="noteInput">Drop a note</label>
         <textarea
           id="noteInput"
           value={note}
           onChange={(e) => setNote(e.target.value)}
+          onPaste={(e) => {
+            const files = imageFiles(e.clipboardData.items);
+            if (files.length) {
+              e.preventDefault();
+              addFiles(files);
+            }
+          }}
           placeholder={
             ai
               ? "e.g. Post Axia launch recap on X Monday. Start teasing template #3 next week. Put Coming Soon on Contra by end of month."
               : "One idea per line, e.g.\nAxia launch recap on X\nTeaser for template #3"
           }
         />
+        {attachments.length > 0 && (
+          <div className="thumbs">
+            {attachments.map((a) => (
+              <PendingThumb key={a.id} a={a} onRemove={() => setAttachments((l) => l.filter((x) => x.id !== a.id))} />
+            ))}
+          </div>
+        )}
         <div className="bar">
           <span className="hint">
             {ai
-              ? "Write it however it comes. Dates like “Friday” or “next week” are fine."
-              : "Each line becomes an idea. Click an item afterwards to set its date."}
+              ? "Write it however it comes, or paste a screenshot. Dates like “Friday” or “next week” are fine."
+              : "Each line becomes an idea. Paste or drop images to attach them."}
           </span>
-          <button type="submit" className="btn primary" disabled={busy || !ready}>
+          <div className="bar-actions">
+          <input
+            ref={fileInput}
+            type="file"
+            accept="image/*"
+            multiple
+            hidden
+            onChange={(e) => {
+              addFiles(imageFiles(e.target.files));
+              e.target.value = "";
+            }}
+          />
+          <button
+            type="button"
+            className="btn"
+            onClick={() => fileInput.current?.click()}
+            disabled={busy || !ready || attachments.length >= MAX_IMAGES}
+          >
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <rect x="3" y="3" width="18" height="18" rx="2" />
+              <circle cx="8.5" cy="8.5" r="1.5" />
+              <path d="m21 15-5-5L5 21" />
+            </svg>
+            Add image
+          </button>
+          <button type="submit" className="btn primary" disabled={busy || !ready || (!note.trim() && !attachments.length)}>
             {busy ? "Organising…" : "Organise into plan"}
           </button>
+          </div>
         </div>
         <div className={`status-line ${status.kind ?? ""}`} role="status" aria-live="polite">
           {status.msg}
@@ -452,6 +564,7 @@ export default function ContentPlan() {
         />
       )}
     </div>
+    </ImageCtx.Provider>
   );
 }
 
@@ -549,6 +662,12 @@ function Row({
           {it.source === "starter" && <span className="tag">example</span>}
         </span>
       </button>
+      {it.images.length > 0 && (
+        <span className="row-thumb">
+          <Thumb id={it.images[0]} size={40} />
+          {it.images.length > 1 && <span className="more">+{it.images.length - 1}</span>}
+        </span>
+      )}
       <button
         className={`pill ${STATUS_CLASS[it.status]}`}
         type="button"
@@ -665,6 +784,7 @@ function Board({
             {list.length ? (
               list.map((it) => (
                 <button type="button" key={it.id} className={`card${isOverdue(it) ? " overdue" : ""}`} onClick={() => onEdit(it)}>
+                  {it.images.length > 0 && <CardImage id={it.images[0]} />}
                   <span className="title">{it.title}</span>
                   <span className="meta">
                     <ChannelTag channel={it.channel} />
@@ -682,6 +802,14 @@ function Board({
         );
       })}
     </div>
+  );
+}
+
+function CardImage({ id }: { id: string }) {
+  return (
+    <span className="card-img">
+      <Thumb id={id} />
+    </span>
   );
 }
 
@@ -705,7 +833,14 @@ function Notes({ plan }: { plan: Plan }) {
               {fmt(d, { day: "numeric", month: "short" })} ·{" "}
               {d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })} · {st}
             </span>
-            <p>{n.text}</p>
+            {n.text && <p>{n.text}</p>}
+            {n.images.length > 0 && (
+              <div className="thumbs">
+                {n.images.map((id) => (
+                  <Thumb key={id} id={id} size={72} />
+                ))}
+              </div>
+            )}
           </article>
         );
       })}
@@ -725,7 +860,23 @@ function EditDialog({
   onDelete: (id: string) => void;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
+  const store = useContext(ImageCtx);
   const [armed, setArmed] = useState(false);
+  const [images, setImages] = useState<string[]>(item?.images ?? []);
+  const [pending, setPending] = useState<Attachment[]>([]);
+  const [err, setErr] = useState("");
+  const [saving, setSaving] = useState(false);
+  const fileInput = useRef<HTMLInputElement>(null);
+  const room = MAX_IMAGES - images.length - pending.length;
+  const addFiles = async (files: File[]) => {
+    try {
+      const ready = await Promise.all(files.slice(0, Math.max(0, room)).map(prepareImage));
+      setPending((p) => [...p, ...ready]);
+      setErr(files.length > room ? `Up to ${MAX_IMAGES} images per item.` : "");
+    } catch (e) {
+      setErr((e as Error).message);
+    }
+  };
   const [f, setF] = useState(() => ({
     title: item?.title ?? "",
     date: item?.date ?? "",
@@ -747,10 +898,18 @@ function EditDialog({
     <dialog ref={ref} onClose={onClose} onCancel={onClose}>
       <form
         className="dlg"
-        onSubmit={(e) => {
+        onSubmit={async (e) => {
           e.preventDefault();
           const title = f.title.trim();
-          if (!title) return;
+          if (!title || saving) return;
+          setSaving(true);
+          try {
+            await storeImages(store, pending);
+          } catch (e2) {
+            setErr((e2 as Error).message);
+            setSaving(false);
+            return;
+          }
           onSave({
             id: item?.id ?? newId(),
             title,
@@ -762,6 +921,7 @@ function EditDialog({
             notes: f.notes.trim(),
             source: item?.source ?? "manual",
             noteId: item?.noteId ?? null,
+            images: [...images, ...pending.map((a) => a.id)],
             createdAt: item?.createdAt ?? new Date().toISOString(),
           });
         }}
@@ -807,7 +967,47 @@ function EditDialog({
         </div>
         <div className="field">
           <label htmlFor="fNotes">Notes</label>
-          <textarea id="fNotes" maxLength={2000} value={f.notes} onChange={(e) => set("notes", e.target.value)} />
+          <textarea
+            id="fNotes"
+            maxLength={2000}
+            value={f.notes}
+            onChange={(e) => set("notes", e.target.value)}
+            onPaste={(e) => {
+              const files = imageFiles(e.clipboardData.items);
+              if (files.length) {
+                e.preventDefault();
+                addFiles(files);
+              }
+            }}
+          />
+        </div>
+        <div className="field">
+          <span className="label">Images</span>
+          <div className="thumbs">
+            {images.map((id) => (
+              <Thumb key={id} id={id} size={56} onRemove={() => setImages((l) => l.filter((x) => x !== id))} />
+            ))}
+            {pending.map((a) => (
+              <PendingThumb key={a.id} a={a} onRemove={() => setPending((l) => l.filter((x) => x.id !== a.id))} />
+            ))}
+            {room > 0 && (
+              <button type="button" className="thumb-add" onClick={() => fileInput.current?.click()} aria-label="Add image">
+                +
+              </button>
+            )}
+          </div>
+          <input
+            ref={fileInput}
+            type="file"
+            accept="image/*"
+            multiple
+            hidden
+            onChange={(e) => {
+              addFiles(imageFiles(e.target.files));
+              e.target.value = "";
+            }}
+          />
+          {err && <div className="status-line err">{err}</div>}
         </div>
         <div className="actions">
           {item ? (
@@ -825,8 +1025,8 @@ function EditDialog({
             <button type="button" className="btn" onClick={() => ref.current?.close()}>
               Cancel
             </button>
-            <button type="submit" className="btn primary">
-              Save
+            <button type="submit" className="btn primary" disabled={saving}>
+              {saving ? "Saving…" : "Save"}
             </button>
           </div>
         </div>
